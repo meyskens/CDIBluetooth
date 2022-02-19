@@ -5,7 +5,7 @@
 
 
 #define JOY_TRESHOLD 30
-#define JOY_DEVIDER 8
+#define JOY_DEVIDER 16
 #define BTN_SPEED 5
 
 // CD-i connection
@@ -75,15 +75,15 @@ void loop() {
     } else if (myGamepad->dpad() == 0x05) {
       // send up right
       y = -1* BTN_SPEED;
-      x = -1* BTN_SPEED;
+      x = BTN_SPEED;
     } else if (myGamepad->dpad() == 0x06) {
       // send down right
       y = BTN_SPEED;
-      x = -1* BTN_SPEED;
+      x = BTN_SPEED;
     } else if (myGamepad->dpad() == 0x0a) {
       // send down left
       y = BTN_SPEED;
-      x = BTN_SPEED;
+      x = -1 * BTN_SPEED;
     }
 
     if (myGamepad->axisX() > JOY_TRESHOLD || myGamepad->axisX() < -1*JOY_TRESHOLD) {
@@ -99,10 +99,6 @@ void loop() {
     if (myGamepad->axisRY() > JOY_TRESHOLD || myGamepad->axisRY() < -1*JOY_TRESHOLD) {
       y = myGamepad->axisRY()/JOY_DEVIDER;
     }
-
-    Serial.println("Xbox ok send to CDI");
-    Serial.println(x);
-    Serial.println(y);
   }
 
   
