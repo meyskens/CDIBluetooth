@@ -28,11 +28,27 @@ void onDisconnectedGamepad(GamepadPtr gp) {
   myGamepad = nullptr;
 }
 
-void loop() {
-  digitalWrite(LED_BUILTIN, 0);
+unsigned long lastBTConnCheckMillis = 0;
+bool led = true;
+
+void loop() {  
   Cdi.Task();
 
-  // This call fetches all the gamepad info from the NINA (ESP32) module.
+  if (!myGamepad || !myGamepad->isConnected()) {
+    // if not connected probe status every 1s
+    // we slow this down to give the CD-i bus compute priority
+    if (lastBTConnCheckMillis+1000 < millis()) {
+      BP32.update();
+      lastBTConnCheckMillis = millis();
+
+      digitalWrite(LED_BUILTIN, led);
+      led = !led;
+    }    
+    return;
+  }
+
+  digitalWrite(LED_BUILTIN, 0);
+  // update BT info 
   BP32.update();
 
   bool btn_1 = false, btn_2 = false;
@@ -103,29 +119,21 @@ void loop() {
 
   
   Cdi.JoyInput(x, y, btn_1, btn_2);
-  digitalWrite(LED_BUILTIN, 1);
 }
 
 void setup() {
   // Initialize serial
   Serial.begin(9600);
-  String fv = BP32.firmwareVersion();
-  Serial.print("Firmware version installed: ");
-  Serial.println(fv);
   pinMode(LED_BUILTIN, OUTPUT);
 
-  BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
-  bool led = false;
-  while (!myGamepad || !myGamepad->isConnected()) {
-    delay(100);
-    BP32.update();
-    Serial.println("Waiting for gamepad...");
-    digitalWrite(LED_BUILTIN, led);
-    led = !led;
+  Serial.println("Connecting to CD-i");
+  Cdi.Init(); // open serial interface to send data to the CD-i
+  
+
+  // for the first 2 seconds only talk to CD-i so we get to send data in time
+  while (millis() < 2000) {
+     Cdi.Task(); 
   }
 
-  digitalWrite(LED_BUILTIN, 0);
-
-  Serial.println("Connecting to CD-i");
-  Cdi.Init(); // open serial interface to send data to the CDi
+  BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);  
 }
