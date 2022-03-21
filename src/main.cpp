@@ -8,13 +8,13 @@
 #define BTN_SPEED 5
 
 // CD-i main connection
-#define PIN_RTS 3
-#define PIN_RXD 4
+#define PIN_RTS 6
+#define PIN_RXD 5
 CdiController Cdi1(PIN_RTS, PIN_RXD, MANEUVER);
 
 // CD-i second connection
-#define PIN_RTS_2 5
-#define PIN_RXD_2 6
+#define PIN_RTS_2 3
+#define PIN_RXD_2 4
 CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 2);
 
 // BT Gamepad
@@ -23,15 +23,18 @@ GamepadPtr btGamepad[2] = {nullptr, nullptr};
 // This callback gets called any time a new gamepad is connected.
 void onConnectedGamepad(GamepadPtr gp)
 {
+  Serial.println("CALLBACK: Gamepad is connected!");
   if (btGamepad[0] == nullptr)
   {
     btGamepad[0] = gp;
+    Serial.println("CALLBACK: Gamepad 0 is connected!");
   }
   else if (btGamepad[1] == nullptr)
   {
     btGamepad[1] = gp;
+    Serial.println("CALLBACK: Gamepad 1 is connected!");
   }
-  Serial.println("CALLBACK: Gamepad is connected!");
+  
 }
 
 void onDisconnectedGamepad(GamepadPtr gp)
@@ -39,12 +42,14 @@ void onDisconnectedGamepad(GamepadPtr gp)
   if (btGamepad[0] == gp)
   {
     btGamepad[0] = nullptr;
+    Serial.println("CALLBACK: Gamepad 0 is disconnected!");
   }
   else if (btGamepad[1] == gp)
   {
     btGamepad[1] = nullptr;
+    Serial.println("CALLBACK: Gamepad 1 is disconnected!");
   }
-  Serial.println("CALLBACK: Gamepad is disconnected!");
+  
 }
 
 unsigned long lastBTConnCheckMillis = 0;
@@ -66,6 +71,7 @@ void loop()
 
       digitalWrite(LED_BUILTIN, led);
       led = !led;
+      Serial.println("Waiting");
     }
     return;
   }
@@ -73,6 +79,12 @@ void loop()
   digitalWrite(LED_BUILTIN, 0);
   // update BT info
   BP32.update();
+
+  if (sizeof(btGamepad) < 100) {
+    Serial.println(btGamepad[1] ==nullptr);
+    delay(1000);
+    return;
+  }
 
   for (int i = 0; i < 2; i++)
   {
@@ -82,7 +94,7 @@ void loop()
 
     // It is safe to always do this before using the gamepad API.
     // This guarantees that the gamepad is valid and connected.
-    if (btGamepad[i] && btGamepad[i]->isConnected())
+    if (btGamepad[i] != nullptr && btGamepad[i]->isConnected())
     {
       if (btGamepad[i]->x())
       {
@@ -164,15 +176,17 @@ void loop()
       {
         y = btGamepad[i]->axisRY() / JOY_DEVIDER;
       }
+
+      if (i == 0)
+      {
+        Cdi1.JoyInput(x, y, btn_1, btn_2);
+      }
+      else
+      {
+        Cdi2.JoyInput(x, y, btn_1, btn_2);
+      }
     }
-    if (i == 0)
-    {
-      Cdi1.JoyInput(x, y, btn_1, btn_2);
-    }
-    else
-    {
-      Cdi2.JoyInput(x, y, btn_1, btn_2);
-    }
+    
   }
 }
 
@@ -194,4 +208,5 @@ void setup()
   }
 
   BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
+  BP32.forgetBluetoothKeys();
 }
