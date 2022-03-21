@@ -9,8 +9,8 @@
 #define BTN_SPEED 5
 
 // CD-i connection
-#define PIN_RTS 3
-#define PIN_RXD 4
+#define PIN_RTS 6
+#define PIN_RXD 5
 CdiController Cdi(PIN_RTS, PIN_RXD, MANEUVER);
 
 // BT Gamepad
@@ -135,5 +135,6 @@ void setup() {
      Cdi.Task(); 
   }
 
-  BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);  
+  BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
+  BP32.forgetBluetoothKeys();
 }
