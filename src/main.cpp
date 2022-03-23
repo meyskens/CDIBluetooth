@@ -10,12 +10,13 @@
 // CD-i main connection
 #define PIN_RTS 6
 #define PIN_RXD 5
-CdiController Cdi1(PIN_RTS, PIN_RXD, MANEUVER);
 
 // CD-i second connection
 #define PIN_RTS_2 3
 #define PIN_RXD_2 4
-CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 2);
+
+CdiController Cdi1(PIN_RTS_2, PIN_RXD_2, MANEUVER, 0);
+CdiController Cdi2(PIN_RTS, PIN_RXD, MANEUVER, 1);
 
 // BT Gamepad
 GamepadPtr btGamepad[2] = {nullptr, nullptr};
@@ -23,7 +24,7 @@ GamepadPtr btGamepad[2] = {nullptr, nullptr};
 // This callback gets called any time a new gamepad is connected.
 void onConnectedGamepad(GamepadPtr gp)
 {
-  Serial.println("CALLBACK: Gamepad is connected!");
+  Serial.println("CALLBACK: Gamepad is connected! which one?");
   if (btGamepad[0] == nullptr)
   {
     btGamepad[0] = gp;
@@ -79,12 +80,6 @@ void loop()
   digitalWrite(LED_BUILTIN, 0);
   // update BT info
   BP32.update();
-
-  if (sizeof(btGamepad) < 100) {
-    Serial.println(btGamepad[1] ==nullptr);
-    delay(1000);
-    return;
-  }
 
   for (int i = 0; i < 2; i++)
   {
