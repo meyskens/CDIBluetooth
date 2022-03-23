@@ -22,7 +22,7 @@ void CdiController::Task() {
 	if (digitalRead(rtsPin)) {
 		//If we weren't connected, make ourselves known to the CD-i player
 		if (!connected) {
-			delay(50); //Specification asks for a delay between first asserting RTS state and writing the mode
+			delay(100); //Specification asks for a delay between first asserting RTS state and writing the mode
 			serialPort->write(mode);
 			connected = true;
 		}
