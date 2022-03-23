@@ -15,8 +15,8 @@
 #define PIN_RTS_2 3
 #define PIN_RXD_2 4
 
-CdiController Cdi1(PIN_RTS_2, PIN_RXD_2, MANEUVER, 0);
-CdiController Cdi2(PIN_RTS, PIN_RXD, MANEUVER, 1);
+CdiController Cdi1(PIN_RTS, PIN_RXD, MANEUVER, 0);
+CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 1);
 
 // BT Gamepad
 GamepadPtr btGamepad[2] = {nullptr, nullptr};
@@ -72,7 +72,6 @@ void loop()
 
       digitalWrite(LED_BUILTIN, led);
       led = !led;
-      Serial.println("Waiting");
     }
     return;
   }
