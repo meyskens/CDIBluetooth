@@ -3,7 +3,7 @@
 #include "wiring_private.h"
 #include <CdiController.h>
 
-#define JOY_TRESHOLD 30
+#define JOY_TRESHOLD 50
 #define JOY_DEVIDER 16
 #define BTN_SPEED 5
 
