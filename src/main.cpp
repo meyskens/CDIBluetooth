@@ -3,15 +3,15 @@
 #include "wiring_private.h"
 #include <CdiController.h>
 
-#define JOY_TRESHOLD 50
-#define JOY_DEVIDER 16
-#define BTN_SPEED 5
+#define JOY_TRESHOLD 50 // used to prevent joystick drift
+#define JOY_DEVIDER 16  // reduces bluepad's big precision int32 to CD-i int8
+#define BTN_SPEED 5     // standard speed of a button press
 
 // CD-i main connection
 #define PIN_RTS 6
 #define PIN_RXD 5
 
-// CD-i second connection
+// CD-i second connection, when port splitting is supported
 #define PIN_RTS_2 3
 #define PIN_RXD_2 4
 
@@ -20,11 +20,13 @@ CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 1);
 
 // BT Gamepad
 GamepadPtr btGamepad[2] = {nullptr, nullptr};
+bool isMouse[2];
 
 // This callback gets called any time a new gamepad is connected.
 void onConnectedGamepad(GamepadPtr gp)
 {
   Serial.println("CALLBACK: Gamepad is connected! which one?");
+  int i = 0;
   if (btGamepad[0] == nullptr)
   {
     btGamepad[0] = gp;
@@ -32,30 +34,159 @@ void onConnectedGamepad(GamepadPtr gp)
   }
   else if (btGamepad[1] == nullptr)
   {
-    btGamepad[1] = gp;
     Serial.println("CALLBACK: Gamepad 1 is connected!");
+    i = 1;
   }
-  
+
+  GamepadProperties properties = gp->getProperties();
+  char buf[80];
+  sprintf(buf,
+          "BTAddr: %02x:%02x:%02x:%02x:%02x:%02x, VID/PID: %04x:%04x, "
+          "flags: 0x%02x",
+          properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
+          properties.btaddr[3], properties.btaddr[4], properties.btaddr[5],
+          properties.vendor_id, properties.product_id, properties.flags);
+  Serial.println(buf); // logging this to help bluepad devs identify mice
+
+  btGamepad[i] = gp;
+  if (gp->getModel() == 32) // 32 is what the Tecknet returns, should be improved later
+  {
+    isMouse[i] = true;
+    Serial.println("Mouse!");
+  }
+  else
+    Serial.println(gp->getModel());
 }
 
 void onDisconnectedGamepad(GamepadPtr gp)
 {
+  int i = 0;
   if (btGamepad[0] == gp)
   {
-    btGamepad[0] = nullptr;
     Serial.println("CALLBACK: Gamepad 0 is disconnected!");
   }
   else if (btGamepad[1] == gp)
   {
-    btGamepad[1] = nullptr;
+    i = 1;
     Serial.println("CALLBACK: Gamepad 1 is disconnected!");
   }
-  
+
+  btGamepad[i] = nullptr;
+  isMouse[i] = false;
 }
 
 unsigned long lastBTConnCheckMillis = 0;
 bool led = true;
 
+// used for mouse parsing
+int deltaX[2];
+int deltaY[2];
+int32_t lastReported[2][2]; // 1st is device 2nd is x 0 y 1
+
+void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
+{
+  if (btGamepad[i]->a())
+    *btn_1 = true; // send btn 1
+  if (btGamepad[i]->b())
+    *btn_2 = true; // sent btn 2
+
+  int32_t reportedX = btGamepad[i]->axisX();
+  int32_t reportedY = btGamepad[i]->axisY();
+
+  // mouse reports same xy when standing still
+  if (reportedX != lastReported[i][0] || reportedY != lastReported[i][1])
+  {
+    *x = reportedX * 2;
+    lastReported[i][0] = reportedX;
+
+    *y = reportedY * 2;
+    lastReported[i][1] = reportedY;
+  }
+
+  // add correction for not sent data + constrain to max CD-i values
+  *x = constrain(*x + deltaX[i], -127, 127);
+  *y = constrain(*y + deltaY[i], -127, 127);
+}
+
+void parseController(int i, int *x, int *y, bool *btn_1, bool *btn_2)
+{
+  // Gamepad
+  if (btGamepad[i]->x())
+    *btn_1 = true; // send button 1
+
+  if (btGamepad[i]->a())
+    *btn_2 = true; // send btn 2
+
+  if (btGamepad[i]->b() || btGamepad[i]->y())
+  {
+    // sent btn 1+2
+    *btn_1 = true;
+    *btn_2 = true;
+  }
+  if (btGamepad[i]->dpad() == 0x01)
+  {
+    // send up
+    *y = -1 * BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x02)
+  {
+    // send down
+    *y = BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x08)
+  {
+    // send left
+    *x = -1 * BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x04)
+  {
+    // send right
+    *x = BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x09)
+  {
+    // send up left
+    *y = -1 * BTN_SPEED;
+    *x = -1 * BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x05)
+  {
+    // send up right
+    *y = -1 * BTN_SPEED;
+    *x = BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x06)
+  {
+    // send down right
+    *y = BTN_SPEED;
+    *x = BTN_SPEED;
+  }
+  else if (btGamepad[i]->dpad() == 0x0a)
+  {
+    // send down left
+    *y = BTN_SPEED;
+    *x = -1 * BTN_SPEED;
+  }
+
+  // JOY_TRESHOLD prevents drift on controllers
+  if (btGamepad[i]->axisX() > JOY_TRESHOLD || btGamepad[i]->axisX() < -1 * JOY_TRESHOLD)
+  {
+    *x = btGamepad[i]->axisX() / JOY_DEVIDER;
+  }
+  if (btGamepad[i]->axisY() > JOY_TRESHOLD || btGamepad[i]->axisY() < -1 * JOY_TRESHOLD)
+  {
+    *y = btGamepad[i]->axisY() / JOY_DEVIDER;
+  }
+
+  if (btGamepad[i]->axisRX() > JOY_TRESHOLD || btGamepad[i]->axisRX() < -1 * JOY_TRESHOLD)
+  {
+    *x = btGamepad[i]->axisRX() / JOY_DEVIDER;
+  }
+  if (btGamepad[i]->axisRY() > JOY_TRESHOLD || btGamepad[i]->axisRY() < -1 * JOY_TRESHOLD)
+  {
+    *y = btGamepad[i]->axisRY() / JOY_DEVIDER;
+  }
+}
 void loop()
 {
   Cdi1.Task();
@@ -84,109 +215,42 @@ void loop()
   {
 
     bool btn_1 = false, btn_2 = false;
-    byte x = 0, y = 0;
+    int x = 0, y = 0;
 
     // It is safe to always do this before using the gamepad API.
     // This guarantees that the gamepad is valid and connected.
     if (btGamepad[i] != nullptr && btGamepad[i]->isConnected())
     {
-      if (btGamepad[i]->x())
-      {
-        // send button 1
-        btn_1 = true;
-      }
+      if (isMouse[i])
+        parseMouse(i, &x, &y, &btn_1, &btn_2);
+      else
+        parseController(i, &x, &y, &btn_1, &btn_2);
 
-      if (btGamepad[i]->a())
-      {
-        // send btn 2
-        btn_2 = true;
-      }
-
-      if (btGamepad[i]->b() || btGamepad[i]->y())
-      {
-        // sent btn 1+2
-        btn_1 = true;
-        btn_2 = true;
-      }
-      if (btGamepad[i]->dpad() == 0x01)
-      {
-        // send up
-        y = -1 * BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x02)
-      {
-        // send dowm
-        y = BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x08)
-      {
-        // send left
-        x = -1 * BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x04)
-      {
-        // send right
-        x = BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x09)
-      {
-        // send up left
-        y = -1 * BTN_SPEED;
-        x = -1 * BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x05)
-      {
-        // send up right
-        y = -1 * BTN_SPEED;
-        x = BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x06)
-      {
-        // send down right
-        y = BTN_SPEED;
-        x = BTN_SPEED;
-      }
-      else if (btGamepad[i]->dpad() == 0x0a)
-      {
-        // send down left
-        y = BTN_SPEED;
-        x = -1 * BTN_SPEED;
-      }
-
-      if (btGamepad[i]->axisX() > JOY_TRESHOLD || btGamepad[i]->axisX() < -1 * JOY_TRESHOLD)
-      {
-        x = btGamepad[i]->axisX() / JOY_DEVIDER;
-      }
-      if (btGamepad[i]->axisY() > JOY_TRESHOLD || btGamepad[i]->axisY() < -1 * JOY_TRESHOLD)
-      {
-        y = btGamepad[i]->axisY() / JOY_DEVIDER;
-      }
-
-      if (btGamepad[i]->axisRX() > JOY_TRESHOLD || btGamepad[i]->axisRX() < -1 * JOY_TRESHOLD)
-      {
-        x = btGamepad[i]->axisRX() / JOY_DEVIDER;
-      }
-      if (btGamepad[i]->axisRY() > JOY_TRESHOLD || btGamepad[i]->axisRY() < -1 * JOY_TRESHOLD)
-      {
-        y = btGamepad[i]->axisRY() / JOY_DEVIDER;
-      }
+      bool res = false;
 
       if (i == 0)
-      {
-        Cdi1.JoyInput(x, y, btn_1, btn_2);
-      }
+        res = Cdi1.JoyInput(x, y, btn_1, btn_2);
       else
+        res = Cdi2.JoyInput(x, y, btn_1, btn_2);
+
+      // store delta of not sent for mice, reset it when data got sent to CD-i
+      if (res && isMouse[i])
       {
-        Cdi2.JoyInput(x, y, btn_1, btn_2);
+        deltaX[i] = 0;
+        deltaY[i] = 0;
+      }
+      else if ((x != 0 && y != 0) && isMouse[i]) // CD-i controller library will not sent if x,y is zero (and no buttons pressed), no waste cpu here on stoing 0s
+      {
+        deltaX[i] = x;
+        deltaY[i] = y;
       }
     }
-    
   }
 }
 
 void setup()
 {
-  // Initialize serial
+  // Initialize serial for debugging, it will start later but CD-i output has priority!
   Serial.begin(9600);
   pinMode(LED_BUILTIN, OUTPUT);
 
