@@ -63,13 +63,13 @@ void onConnectedGamepad(GamepadPtr gp)
   Serial.println(buf); // logging this to help bluepad devs identify mice
 
   btGamepad[i] = gp;
-  if (gp->getModel() == 32) // 32 is what the Tecknet returns, should be improved later
+  if (gp->getProperties().flags & GAMEPAD_PROPERTY_FLAG_MOUSE == GAMEPAD_PROPERTY_FLAG_MOUSE) // check if flag contains mouse
   {
     isMouse[i] = true;
     Serial.println("Mouse!");
   }
   else
-    Serial.println(gp->getModel());
+    Serial.println(gp->getProperties().flags);
 
   enableDisableScan();
 }
