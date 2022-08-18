@@ -22,6 +22,20 @@ CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 1);
 GamepadPtr btGamepad[2] = {nullptr, nullptr};
 bool isMouse[2];
 
+void enableDisableScan()
+{
+  if (btGamepad[0] != nullptr && btGamepad[1] != nullptr)
+  {
+    Serial.println("Both gamepads connected! Stopping scan.");
+    BP32.enableNewBluetoothConnections(false);
+  }
+  else
+  {
+    Serial.println("One gamepad connected! Will keep scanning.");
+    BP32.enableNewBluetoothConnections(true);
+  }
+}
+
 // This callback gets called any time a new gamepad is connected.
 void onConnectedGamepad(GamepadPtr gp)
 {
@@ -56,6 +70,8 @@ void onConnectedGamepad(GamepadPtr gp)
   }
   else
     Serial.println(gp->getModel());
+
+  enableDisableScan();
 }
 
 void onDisconnectedGamepad(GamepadPtr gp)
@@ -73,6 +89,8 @@ void onDisconnectedGamepad(GamepadPtr gp)
 
   btGamepad[i] = nullptr;
   isMouse[i] = false;
+
+  enableDisableScan();
 }
 
 unsigned long lastBTConnCheckMillis = 0;
@@ -267,4 +285,5 @@ void setup()
 
   BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
   BP32.forgetBluetoothKeys();
+  BP32.enableNewBluetoothConnections(true);
 }
