@@ -3,11 +3,15 @@
 #include "wiring_private.h"
 #include <CdiController.h>
 
+#include "avdweb_SAMDtimer.h"
+
+SAMDtimer MouseTimer = SAMDtimer(4, TC_COUNTER_SIZE_16BIT, 3, 830 * 25); // 830 microseconds per bit, 24 bits per command + 1 tick delay
+
 #define JOY_TRESHOLD 50 // used to prevent joystick drift
 #define JOY_DEVIDER 16  // reduces bluepad's big precision int32 to CD-i int8
 #define BTN_SPEED 5     // standard speed of a button press
 
-// CD-i main connection
+// CD-i main connection1
 #define PIN_RTS 6
 #define PIN_RXD 5
 
@@ -21,6 +25,53 @@ CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 1);
 // BT Gamepad
 GamepadPtr btGamepad[2] = {nullptr, nullptr};
 bool isMouse[2];
+
+void fetchMouse()
+{
+  BP32.update();
+
+  if (Cdi1.commBusy())
+  {
+    Serial.println("Fuck that was a wasted interupt");
+    return;
+  }
+
+  for (int i = 0; i < 2; i++)
+  {
+
+    bool btn_1 = false, btn_2 = false;
+    int x = 0, y = 0;
+
+    // It is safe to always do this before using the gamepad API.
+    // This guarantees that the gamepad is valid and connected.
+    if (btGamepad[i] != nullptr && btGamepad[i]->isConnected())
+    {
+      if (isMouse[i])
+        parseMouse(i, &x, &y, &btn_1, &btn_2);
+      else
+        parseController(i, &x, &y, &btn_1, &btn_2);
+
+      bool res = false;
+
+      if (i == 0)
+        res = Cdi1.JoyInput(x, y, btn_1, btn_2);
+      else
+        res = Cdi2.JoyInput(x, y, btn_1, btn_2);
+
+      // store delta of not sent for mice, reset it when data got sent to CD-i
+      if (res && isMouse[i])
+      {
+        deltaX[i] = 0;
+        deltaY[i] = 0;
+      }
+      else if ((x != 0 && y != 0) && isMouse[i]) // CD-i controller library will not sent if x,y is zero (and no buttons pressed), no waste cpu here on stoing 0s
+      {
+        deltaX[i] = x;
+        deltaY[i] = y;
+      }
+    }
+  }
+}
 
 void enableDisableScan()
 {
@@ -67,6 +118,8 @@ void onConnectedGamepad(GamepadPtr gp)
   {
     isMouse[i] = true;
     Serial.println("Mouse!");
+    MouseTimer.attachInterrupt(fetchMouse);
+    MouseTimer.enable(true);
   }
   else
     Serial.println(gp->getProperties().flags);
@@ -226,6 +279,11 @@ void loop()
   }
 
   digitalWrite(LED_BUILTIN, 0);
+
+  if (isMouse[0] || isMouse[1])
+  {
+    return; // there is a mouse TODO HANDLE BOTH DEVICES
+  }
   // update BT info
   BP32.update();
 
