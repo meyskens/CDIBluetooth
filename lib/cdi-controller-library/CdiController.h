@@ -55,15 +55,16 @@ public:
 	bool IsConnected() { return connected; }
 	uint8_t RTSPin()   { return rtsPin; }
 	uint8_t RXDPin()   { return rxdPin; }
+
+	inline bool commBusy() {
+	return serialPort->isBusy();
+	}
 protected:
 	bool connected; //Are we connected?
 	uint8_t rtsPin; //Pin number on the Arduino for the RTS (Request To Send) pin (pin#7 on CD-i player)
 	uint8_t rxdPin; //Pin number on the Arduino for the RXD (Data Transfer) pin (pin#2 on the CD-i player)
 	uint8_t mode;   //Current mode
 	
-	inline bool commBusy() {
-	return serialPort->isBusy();
-	}
 private:
 	uint8_t oldButtons;        //Old button state
 	CdiSerial *serialPort;

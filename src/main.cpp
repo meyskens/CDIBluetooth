@@ -5,7 +5,7 @@
 
 #include "avdweb_SAMDtimer.h"
 
-SAMDtimer MouseTimer = SAMDtimer(4, TC_COUNTER_SIZE_16BIT, 3, 830 * 25); // 830 microseconds per bit, 24 bits per command + 1 tick delay
+SAMDtimer MouseTimer = SAMDtimer(4, TC_COUNTER_SIZE_16BIT, 3, 831 * 20); // 830 microseconds per bit, 24 bits per command + 1 tick delay
 
 #define JOY_TRESHOLD 50 // used to prevent joystick drift
 #define JOY_DEVIDER 16  // reduces bluepad's big precision int32 to CD-i int8
@@ -26,15 +26,43 @@ CdiController Cdi2(PIN_RTS_2, PIN_RXD_2, MANEUVER, 1);
 GamepadPtr btGamepad[2] = {nullptr, nullptr};
 bool isMouse[2];
 
+// used for mouse parsing
+int32_t lastReported[2][2]; // 1st is device 2nd is x 0 y 1
+
+void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
+{
+  if (btGamepad[i]->a())
+    *btn_1 = true; // send btn 1
+  if (btGamepad[i]->b())
+    *btn_2 = true; // sent btn 2
+
+  int32_t reportedX = btGamepad[i]->axisX();
+  int32_t reportedY = btGamepad[i]->axisY();
+
+  // mouse reports same xy when standing still
+  if (reportedX != lastReported[i][0] || reportedY != lastReported[i][1])
+  {
+    *x = reportedX * 2;
+    lastReported[i][0] = reportedX;
+
+    *y = reportedY * 2;
+    lastReported[i][1] = reportedY;
+  }
+
+  // add correction for not sent data + constrain to max CD-i values
+  //*x = constrain(*x, -127, 127);
+  //*y = constrain(*y, -127, 127);
+}
+
 void fetchMouse()
 {
-  BP32.update();
-
-  if (Cdi1.commBusy())
+  if (Cdi1.commBusy() || !Cdi1.IsConnected())
   {
-    Serial.println("Fuck that was a wasted interupt");
+    // on busy input interupts will be wasted but it's not a big deal
     return;
   }
+
+  BP32.update();
 
   for (int i = 0; i < 2; i++)
   {
@@ -49,7 +77,7 @@ void fetchMouse()
       if (isMouse[i])
         parseMouse(i, &x, &y, &btn_1, &btn_2);
       else
-        parseController(i, &x, &y, &btn_1, &btn_2);
+        continue;
 
       bool res = false;
 
@@ -58,16 +86,13 @@ void fetchMouse()
       else
         res = Cdi2.JoyInput(x, y, btn_1, btn_2);
 
-      // store delta of not sent for mice, reset it when data got sent to CD-i
-      if (res && isMouse[i])
-      {
-        deltaX[i] = 0;
-        deltaY[i] = 0;
-      }
-      else if ((x != 0 && y != 0) && isMouse[i]) // CD-i controller library will not sent if x,y is zero (and no buttons pressed), no waste cpu here on stoing 0s
-      {
-        deltaX[i] = x;
-        deltaY[i] = y;
+      if (!res && (x != 0 || y != 0))
+        Serial.println("Send to CD-i failed");
+    
+      if (x != 0 || y != 0) {
+        Serial.print(x);
+        Serial.print(" ");
+        Serial.println(y);
       }
     }
   }
@@ -114,7 +139,7 @@ void onConnectedGamepad(GamepadPtr gp)
   Serial.println(buf); // logging this to help bluepad devs identify mice
 
   btGamepad[i] = gp;
-  if (gp->getProperties().flags & GAMEPAD_PROPERTY_FLAG_MOUSE == GAMEPAD_PROPERTY_FLAG_MOUSE) // check if flag contains mouse
+  if (gp->getProperties().flags == GAMEPAD_PROPERTY_FLAG_MOUSE) // check if flag contains mouse
   {
     isMouse[i] = true;
     Serial.println("Mouse!");
@@ -148,36 +173,6 @@ void onDisconnectedGamepad(GamepadPtr gp)
 
 unsigned long lastBTConnCheckMillis = 0;
 bool led = true;
-
-// used for mouse parsing
-int deltaX[2];
-int deltaY[2];
-int32_t lastReported[2][2]; // 1st is device 2nd is x 0 y 1
-
-void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
-{
-  if (btGamepad[i]->a())
-    *btn_1 = true; // send btn 1
-  if (btGamepad[i]->b())
-    *btn_2 = true; // sent btn 2
-
-  int32_t reportedX = btGamepad[i]->axisX();
-  int32_t reportedY = btGamepad[i]->axisY();
-
-  // mouse reports same xy when standing still
-  if (reportedX != lastReported[i][0] || reportedY != lastReported[i][1])
-  {
-    *x = reportedX * 2;
-    lastReported[i][0] = reportedX;
-
-    *y = reportedY * 2;
-    lastReported[i][1] = reportedY;
-  }
-
-  // add correction for not sent data + constrain to max CD-i values
-  *x = constrain(*x + deltaX[i], -127, 127);
-  *y = constrain(*y + deltaY[i], -127, 127);
-}
 
 void parseController(int i, int *x, int *y, bool *btn_1, bool *btn_2)
 {
@@ -297,29 +292,11 @@ void loop()
     // This guarantees that the gamepad is valid and connected.
     if (btGamepad[i] != nullptr && btGamepad[i]->isConnected())
     {
-      if (isMouse[i])
-        parseMouse(i, &x, &y, &btn_1, &btn_2);
-      else
-        parseController(i, &x, &y, &btn_1, &btn_2);
-
-      bool res = false;
-
+      parseController(i, &x, &y, &btn_1, &btn_2);
       if (i == 0)
-        res = Cdi1.JoyInput(x, y, btn_1, btn_2);
+        Cdi1.JoyInput(x, y, btn_1, btn_2);
       else
-        res = Cdi2.JoyInput(x, y, btn_1, btn_2);
-
-      // store delta of not sent for mice, reset it when data got sent to CD-i
-      if (res && isMouse[i])
-      {
-        deltaX[i] = 0;
-        deltaY[i] = 0;
-      }
-      else if ((x != 0 && y != 0) && isMouse[i]) // CD-i controller library will not sent if x,y is zero (and no buttons pressed), no waste cpu here on stoing 0s
-      {
-        deltaX[i] = x;
-        deltaY[i] = y;
-      }
+        Cdi2.JoyInput(x, y, btn_1, btn_2);
     }
   }
 }
