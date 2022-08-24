@@ -9,7 +9,7 @@ SAMDtimer MouseTimer = SAMDtimer(4, TC_COUNTER_SIZE_16BIT, 3, 831 * 20); // 830 
 
 #define JOY_TRESHOLD 50 // used to prevent joystick drift
 #define JOY_DEVIDER 16  // reduces bluepad's big precision int32 to CD-i int8
-#define BTN_SPEED 5     // standard speed of a button press
+#define BTN_SPEED 4     // standard speed of a button press
 
 // CD-i main connection1
 #define PIN_RTS 6
@@ -28,7 +28,6 @@ bool isMouse[2];
 
 // used for mouse parsing
 int32_t lastReported[2][2]; // 1st is device 2nd is x 0 y 1
-
 void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
 {
   if (btGamepad[i]->a())
@@ -48,131 +47,7 @@ void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
     *y = reportedY * 2;
     lastReported[i][1] = reportedY;
   }
-
-  // add correction for not sent data + constrain to max CD-i values
-  //*x = constrain(*x, -127, 127);
-  //*y = constrain(*y, -127, 127);
 }
-
-void fetchMouse()
-{
-  if (Cdi1.commBusy() || !Cdi1.IsConnected())
-  {
-    // on busy input interupts will be wasted but it's not a big deal
-    return;
-  }
-
-  BP32.update();
-
-  for (int i = 0; i < 2; i++)
-  {
-
-    bool btn_1 = false, btn_2 = false;
-    int x = 0, y = 0;
-
-    // It is safe to always do this before using the gamepad API.
-    // This guarantees that the gamepad is valid and connected.
-    if (btGamepad[i] != nullptr && btGamepad[i]->isConnected())
-    {
-      if (isMouse[i])
-        parseMouse(i, &x, &y, &btn_1, &btn_2);
-      else
-        continue;
-
-      bool res = false;
-
-      if (i == 0)
-        res = Cdi1.JoyInput(x, y, btn_1, btn_2);
-      else
-        res = Cdi2.JoyInput(x, y, btn_1, btn_2);
-
-      if (!res && (x != 0 || y != 0))
-        Serial.println("Send to CD-i failed");
-    
-      if (x != 0 || y != 0) {
-        Serial.print(x);
-        Serial.print(" ");
-        Serial.println(y);
-      }
-    }
-  }
-}
-
-void enableDisableScan()
-{
-  if (btGamepad[0] != nullptr && btGamepad[1] != nullptr)
-  {
-    Serial.println("Both gamepads connected! Stopping scan.");
-    BP32.enableNewBluetoothConnections(false);
-  }
-  else
-  {
-    Serial.println("One gamepad connected! Will keep scanning.");
-    BP32.enableNewBluetoothConnections(true);
-  }
-}
-
-// This callback gets called any time a new gamepad is connected.
-void onConnectedGamepad(GamepadPtr gp)
-{
-  Serial.println("CALLBACK: Gamepad is connected! which one?");
-  int i = 0;
-  if (btGamepad[0] == nullptr)
-  {
-    btGamepad[0] = gp;
-    Serial.println("CALLBACK: Gamepad 0 is connected!");
-  }
-  else if (btGamepad[1] == nullptr)
-  {
-    Serial.println("CALLBACK: Gamepad 1 is connected!");
-    i = 1;
-  }
-
-  GamepadProperties properties = gp->getProperties();
-  char buf[80];
-  sprintf(buf,
-          "BTAddr: %02x:%02x:%02x:%02x:%02x:%02x, VID/PID: %04x:%04x, "
-          "flags: 0x%02x",
-          properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
-          properties.btaddr[3], properties.btaddr[4], properties.btaddr[5],
-          properties.vendor_id, properties.product_id, properties.flags);
-  Serial.println(buf); // logging this to help bluepad devs identify mice
-
-  btGamepad[i] = gp;
-  if (gp->getProperties().flags == GAMEPAD_PROPERTY_FLAG_MOUSE) // check if flag contains mouse
-  {
-    isMouse[i] = true;
-    Serial.println("Mouse!");
-    MouseTimer.attachInterrupt(fetchMouse);
-    MouseTimer.enable(true);
-  }
-  else
-    Serial.println(gp->getProperties().flags);
-
-  enableDisableScan();
-}
-
-void onDisconnectedGamepad(GamepadPtr gp)
-{
-  int i = 0;
-  if (btGamepad[0] == gp)
-  {
-    Serial.println("CALLBACK: Gamepad 0 is disconnected!");
-  }
-  else if (btGamepad[1] == gp)
-  {
-    i = 1;
-    Serial.println("CALLBACK: Gamepad 1 is disconnected!");
-  }
-
-  btGamepad[i] = nullptr;
-  isMouse[i] = false;
-
-  enableDisableScan();
-}
-
-unsigned long lastBTConnCheckMillis = 0;
-bool led = true;
 
 void parseController(int i, int *x, int *y, bool *btn_1, bool *btn_2)
 {
@@ -253,10 +128,151 @@ void parseController(int i, int *x, int *y, bool *btn_1, bool *btn_2)
     *y = btGamepad[i]->axisRY() / JOY_DEVIDER;
   }
 }
+
+void fetchMouseInterupt()
+{
+  if (Cdi1.commBusy() || !Cdi1.IsConnected())
+  {
+    // on busy input interupts will be wasted but it's not a big deal
+    return;
+  }
+
+  BP32.update();
+
+  for (int i = 0; i < 2; i++)
+  {
+    bool btn_1 = false, btn_2 = false;
+    int x = 0, y = 0;
+
+    // It is safe to always do this before using the gamepad API.
+    // This guarantees that the gamepad is valid and connected.
+    if (btGamepad[i] != nullptr && btGamepad[i]->isConnected())
+    {
+      if (isMouse[i])
+        parseMouse(i, &x, &y, &btn_1, &btn_2);
+      else
+        parseController(i, &x, &y, &btn_1, &btn_2);
+
+      if (i == 0)
+        Cdi1.JoyInput(x, y, btn_1, btn_2);
+      else
+        Cdi2.JoyInput(x, y, btn_1, btn_2);
+    }
+  }
+}
+
+void enableDisableScan()
+{
+  if (btGamepad[0] != nullptr && btGamepad[1] != nullptr && btGamepad[0]->isConnected() && btGamepad[0]->isConnected())
+  {
+    Serial.println("Both gamepads connected! Stopping scan.");
+    BP32.enableNewBluetoothConnections(false);
+  }
+  else
+  {
+    Serial.println("Zero or one gamepad connected! Will keep scanning.");
+    BP32.enableNewBluetoothConnections(true);
+  }
+}
+
+// This callback gets called any time a new gamepad is connected.
+void onConnectedGamepad(GamepadPtr gp)
+{
+  Serial.println("CALLBACK: Gamepad is connected! which one?");
+  GamepadProperties properties = gp->getProperties();
+  char buf[80];
+  sprintf(buf,
+          "BTAddr: %02x:%02x:%02x:%02x:%02x:%02x, VID/PID: %04x:%04x, "
+          "flags: 0x%02x",
+          properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
+          properties.btaddr[3], properties.btaddr[4], properties.btaddr[5],
+          properties.vendor_id, properties.product_id, properties.flags);
+  Serial.println(buf); // logging this to help bluepad devs identify mice
+  int i = 0;
+  if (btGamepad[0] == nullptr)
+  {
+    btGamepad[0] = gp;
+    Serial.println("CALLBACK: Gamepad 0 is connected!");
+  }
+  else if (btGamepad[1] == nullptr)
+  {
+    if (btGamepad[0] && btGamepad[0]->isConnected())
+    { 
+      bool isSame = true;
+      for (int j = 0; j < 6; j++)
+      {
+        if (gp->getProperties().btaddr[j] != btGamepad[0]->getProperties().btaddr[j]) {
+          isSame = false;
+          break;
+        }
+      }
+      if (isSame)
+      {
+        Serial.println("CALLBACK: Gamepad 1 is duplicate!");
+        return;
+      }
+    }
+      
+    Serial.println("CALLBACK: Gamepad 1 is connected!");
+    i = 1;
+  }
+
+  btGamepad[i] = gp;
+  if (gp->getProperties().flags == GAMEPAD_PROPERTY_FLAG_MOUSE) // check if flag contains mouse
+  {
+    isMouse[i] = true;
+    Serial.println("Mouse!");
+    MouseTimer.attachInterrupt(fetchMouseInterupt);
+    MouseTimer.enable(true);
+  }
+  else
+    Serial.println(gp->getProperties().flags);
+
+  enableDisableScan();
+}
+
+void onDisconnectedGamepad(GamepadPtr gp)
+{
+  int i = 0;
+  if (btGamepad[0] == gp)
+  {
+    Serial.println("CALLBACK: Gamepad 0 is disconnected!");
+  }
+  else if (btGamepad[1] == gp)
+  {
+    i = 1;
+    Serial.println("CALLBACK: Gamepad 1 is disconnected!");
+  }
+
+  btGamepad[i] = nullptr;
+  isMouse[i] = false;
+
+  if (!isMouse[0] && !isMouse[1])
+  {
+    // switch back to polling mode for gamepads
+    Serial.println("No mice connected! Switching back to polling mode.");
+    MouseTimer.enable(false);
+  }
+
+  enableDisableScan();
+}
+
+unsigned long lastBTConnCheckMillis = 0;
+bool led = true;
+
 void loop()
 {
   Cdi1.Task();
   Cdi2.Task();
+
+  if (isMouse[0] || isMouse[1])
+  {
+    // if one is a mouse we use interupts for input
+    // so the loop only should be used to command the CD-i input library tasks
+
+    digitalWrite(LED_BUILTIN, 1); // keep LED on to indicate mouse mode
+    return;
+  }
 
   if ((!btGamepad[0] || !btGamepad[0]->isConnected()) && (!btGamepad[1] || !btGamepad[1]->isConnected()))
   {
@@ -273,18 +289,13 @@ void loop()
     return;
   }
 
-  digitalWrite(LED_BUILTIN, 0);
-
-  if (isMouse[0] || isMouse[1])
-  {
-    return; // there is a mouse TODO HANDLE BOTH DEVICES
-  }
+  // polling Gamepad
+  digitalWrite(LED_BUILTIN, 0); // keep LED off to indicate gamepad mode
   // update BT info
   BP32.update();
 
   for (int i = 0; i < 2; i++)
   {
-
     bool btn_1 = false, btn_2 = false;
     int x = 0, y = 0;
 
@@ -319,6 +330,6 @@ void setup()
   }
 
   BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
-  BP32.forgetBluetoothKeys();
+  // BP32.forgetBluetoothKeys();
   BP32.enableNewBluetoothConnections(true);
 }
