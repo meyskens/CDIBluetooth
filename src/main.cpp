@@ -8,8 +8,10 @@
 SAMDtimer MouseTimer = SAMDtimer(4, TC_COUNTER_SIZE_16BIT, 3, 831 * 20); // 830 microseconds per bit, 24 bits per command + 1 tick delay
 
 #define JOY_TRESHOLD 50 // used to prevent joystick drift
-#define JOY_DEVIDER 16  // reduces bluepad's big precision int32 to CD-i int8
-#define BTN_SPEED 4     // standard speed of a button press
+
+int8_t joy_devider = 16; // reduces bluepad's big precision int32 to CD-i int8
+int8_t btn_speed = 4; // speed of a button press
+unsigned long lastSpeedChageMillis = 0;
 
 // CD-i main connection1
 #define PIN_RTS 6
@@ -28,15 +30,16 @@ bool isMouse[2];
 
 // used for mouse parsing
 int32_t lastReported[2][2]; // 1st is device 2nd is x 0 y 1
-void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
+void parseMouse(int i, int32_t *x, int32_t *y, bool *btn_1, bool *btn_2)
 {
   if (btGamepad[i]->a())
     *btn_1 = true; // send btn 1
   if (btGamepad[i]->b())
     *btn_2 = true; // sent btn 2
 
-  int32_t reportedX = btGamepad[i]->axisX();
-  int32_t reportedY = btGamepad[i]->axisY();
+
+  int32_t reportedX = btGamepad[i]->deltaX();
+  int32_t reportedY = btGamepad[i]->deltaY();
 
   // mouse reports same xy when standing still
   if (reportedX != lastReported[i][0] || reportedY != lastReported[i][1])
@@ -49,7 +52,7 @@ void parseMouse(int i, int *x, int *y, bool *btn_1, bool *btn_2)
   }
 }
 
-void parseController(int i, int *x, int *y, bool *btn_1, bool *btn_2)
+void parseController(int i, int32_t *x, int32_t *y, bool *btn_1, bool *btn_2)
 {
   // Gamepad
   if (btGamepad[i]->x())
@@ -67,65 +70,89 @@ void parseController(int i, int *x, int *y, bool *btn_1, bool *btn_2)
   if (btGamepad[i]->dpad() == 0x01)
   {
     // send up
-    *y = -1 * BTN_SPEED;
+    *y = -1 * btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x02)
   {
     // send down
-    *y = BTN_SPEED;
+    *y = btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x08)
   {
     // send left
-    *x = -1 * BTN_SPEED;
+    *x = -1 * btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x04)
   {
     // send right
-    *x = BTN_SPEED;
+    *x = btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x09)
   {
     // send up left
-    *y = -1 * BTN_SPEED;
-    *x = -1 * BTN_SPEED;
+    *y = -1 * btn_speed;
+    *x = -1 * btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x05)
   {
     // send up right
-    *y = -1 * BTN_SPEED;
-    *x = BTN_SPEED;
+    *y = -1 * btn_speed;
+    *x = btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x06)
   {
     // send down right
-    *y = BTN_SPEED;
-    *x = BTN_SPEED;
+    *y = btn_speed;
+    *x = btn_speed;
   }
   else if (btGamepad[i]->dpad() == 0x0a)
   {
     // send down left
-    *y = BTN_SPEED;
-    *x = -1 * BTN_SPEED;
+    *y = btn_speed;
+    *x = -1 * btn_speed;
   }
 
   // JOY_TRESHOLD prevents drift on controllers
   if (btGamepad[i]->axisX() > JOY_TRESHOLD || btGamepad[i]->axisX() < -1 * JOY_TRESHOLD)
   {
-    *x = btGamepad[i]->axisX() / JOY_DEVIDER;
+    *x = btGamepad[i]->axisX() / joy_devider;
   }
   if (btGamepad[i]->axisY() > JOY_TRESHOLD || btGamepad[i]->axisY() < -1 * JOY_TRESHOLD)
   {
-    *y = btGamepad[i]->axisY() / JOY_DEVIDER;
+    *y = btGamepad[i]->axisY() / joy_devider;
   }
 
   if (btGamepad[i]->axisRX() > JOY_TRESHOLD || btGamepad[i]->axisRX() < -1 * JOY_TRESHOLD)
   {
-    *x = btGamepad[i]->axisRX() / JOY_DEVIDER;
+    *x = btGamepad[i]->axisRX() / joy_devider;
   }
   if (btGamepad[i]->axisRY() > JOY_TRESHOLD || btGamepad[i]->axisRY() < -1 * JOY_TRESHOLD)
   {
-    *y = btGamepad[i]->axisRY() / JOY_DEVIDER;
+    *y = btGamepad[i]->axisRY() / joy_devider;
+  }
+
+  if (
+  (btGamepad[i]->miscHome() || btGamepad[i]->miscBack()) &&
+  (lastSpeedChageMillis + 1000 < millis() ||  millis() - lastSpeedChageMillis < 0) &&
+  (btGamepad[i]->l1() || btGamepad[i]->r1() || btGamepad[i]->l2() || btGamepad[i]->r2())
+  )
+  {
+    // change speed on l1 and r1
+    if (btGamepad[i]->l1() || btGamepad[i]->l2()) {
+      btn_speed = constrain(btn_speed - 1, 1, 20);
+      joy_devider = constrain(joy_devider + 4, 1, 50);
+    }
+    else if (btGamepad[i]->r1() || btGamepad[i]->r2()) {
+      btn_speed = constrain(btn_speed + 1, 1, 20);
+      joy_devider = constrain(joy_devider - 4, 1, 50);
+    }
+
+    Serial.print("Speed: ");
+    Serial.println(btn_speed);
+    Serial.print("Joy devider: ");
+    Serial.println(joy_devider);
+
+    lastSpeedChageMillis = millis();
   }
 }
 
@@ -142,7 +169,7 @@ void fetchMouseInterupt()
   for (int i = 0; i < 2; i++)
   {
     bool btn_1 = false, btn_2 = false;
-    int x = 0, y = 0;
+    int32_t x = 0, y = 0;
 
     // It is safe to always do this before using the gamepad API.
     // This guarantees that the gamepad is valid and connected.
@@ -179,14 +206,16 @@ void enableDisableScan()
 void onConnectedGamepad(GamepadPtr gp)
 {
   Serial.println("CALLBACK: Gamepad is connected! which one?");
-  GamepadProperties properties = gp->getProperties();
+ 
+ ControllerProperties properties = gp->getProperties();
   char buf[80];
   sprintf(buf,
-          "BTAddr: %02x:%02x:%02x:%02x:%02x:%02x, VID/PID: %04x:%04x, "
-          "flags: 0x%02x",
-          properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
-          properties.btaddr[3], properties.btaddr[4], properties.btaddr[5],
-          properties.vendor_id, properties.product_id, properties.flags);
+    "BTAddr: %02x:%02x:%02x:%02x:%02x:%02x, VID/PID: %04x:%04x, "
+    "flags: 0x%02x, type: %d",
+    properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
+    properties.btaddr[3], properties.btaddr[4], properties.btaddr[5],
+    properties.vendor_id, properties.product_id, properties.flags, properties.type);
+
   Serial.println(buf); // logging this to help bluepad devs identify mice
   int i = 0;
   if (btGamepad[0] == nullptr)
@@ -218,7 +247,10 @@ void onConnectedGamepad(GamepadPtr gp)
   }
 
   btGamepad[i] = gp;
-  if (gp->getProperties().flags == GAMEPAD_PROPERTY_FLAG_MOUSE) // check if flag contains mouse
+  Serial.println(gp->getClass());
+  Serial.println(gp->getModel());
+  // check if flag contains mouse as the class is well not reliable
+  if (gp->isMouse() || (gp->getProperties().flags & CONTROLLER_PROPERTY_FLAG_MOUSE) == CONTROLLER_PROPERTY_FLAG_MOUSE) 
   {
     isMouse[i] = true;
     Serial.println("Mouse!");
@@ -297,7 +329,7 @@ void loop()
   for (int i = 0; i < 2; i++)
   {
     bool btn_1 = false, btn_2 = false;
-    int x = 0, y = 0;
+    int32_t x = 0, y = 0;
 
     // It is safe to always do this before using the gamepad API.
     // This guarantees that the gamepad is valid and connected.
@@ -330,6 +362,6 @@ void setup()
   }
 
   BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
-  // BP32.forgetBluetoothKeys();
+  // BP32.forgetBluetoothKeys(); // re-enable if you have paring troubles
   BP32.enableNewBluetoothConnections(true);
 }
